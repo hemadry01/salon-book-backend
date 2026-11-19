@@ -21,11 +21,36 @@ export async function connectToMongoDB() {
 
 const connectedClient = await connectToMongoDB();
 const db = connectedClient.db("salon-book")
+const collection = db.collection("user");
 
 app.get('/', (req, res) => {
   res.send('Hello World!')
 })
 
-app.listen(process.env.PORT || 5000, ()=>{
-    console.log("Server is running on port 5000");
+///admin api
+app.get("/users", async(req,res)=>{
+     try {
+    const result = await collection.find({}).toArray();
+
+    res.status(200).send({
+      success: true,
+      message: "User fetched successfully",
+      data: result,
+    });
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to fetch users",
+      data: [],
+    });
+  }
+ });
+
+//
+
+app.listen(process.env.PORT || 8000, ()=>{
+    console.log("Server is running on port 8000");
 })
