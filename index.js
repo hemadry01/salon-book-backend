@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from "cors";
 import 'dotenv/config';
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 
 const app = express();
 
@@ -51,7 +51,7 @@ app.get("/users", async(req,res)=>{
   }
  });
 
- app.post("/admin/service", async(req,res)=>{
+ app.post("/admin/add-service", async(req,res)=>{
   // const service = req.body
   // const result = await services.insertOne(service);
   // res.send(result);
@@ -69,7 +69,7 @@ app.get("/users", async(req,res)=>{
     res.status(201).send({
       success: true,
       message: "Service created successfully",
-      insertedId: result.insertedId,
+      result,
     });
 
   } catch (error) {
@@ -81,6 +81,31 @@ app.get("/users", async(req,res)=>{
     });
   }
  });
+
+ app.get("/admin/services", async(req,res)=>{
+
+    try {
+      const result = await services.find().toArray();
+      res.status(200).send({
+        success: true,
+        message: "Service fetched successfully",
+        data: result,
+      })
+      
+    } catch (error) {
+      console.error(error);
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to fetch services",
+      data: [],
+    });
+    }
+ })
+
+
+
+ 
 
 //
 
