@@ -103,9 +103,38 @@ app.get("/users", async(req,res)=>{
     }
  })
 
+app.delete("/admin/service/:id", async(req,res)=>{
 
+  // const{id} = req.params
+  // const result = await services.deleteOne({_id:new ObjectId(id)});
+  // res.send(result);
+  try {
+    
+    const {id} = req.params;
 
- 
+    if(!ObjectId.isValid(id)){
+      return res.status(400).send({ message: "Invalid service ID" });
+    }
+
+    const result = await services.deleteOne({_id:new ObjectId(id)});
+
+    if(result.deletedCount === 0){
+      return res.status(400).send({ message: "Service not found" });
+    }
+
+    res.status(200).send({
+      message: "Service deleted Successfully",
+      result
+    })
+
+  } catch (error) {
+    res.status(500).send({
+      message: "Failed to delete service",
+      error: error.message,
+    });
+  }
+})
+
 
 //
 
