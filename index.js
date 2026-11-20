@@ -21,7 +21,9 @@ export async function connectToMongoDB() {
 
 const connectedClient = await connectToMongoDB();
 const db = connectedClient.db("salon-book")
+
 const collection = db.collection("user");
+const services = db.collection("services")
 
 app.get('/', (req, res) => {
   res.send('Hello World!')
@@ -45,6 +47,37 @@ app.get("/users", async(req,res)=>{
       success: false,
       message: "Failed to fetch users",
       data: [],
+    });
+  }
+ });
+
+ app.post("/admin/service", async(req,res)=>{
+  // const service = req.body
+  // const result = await services.insertOne(service);
+  // res.send(result);
+  try {
+    const service = req.body;
+
+    if(!service.image){
+      return res.status(400).send({
+        seccess: false,
+        message: "Service image is required",
+      });
+    }
+    const result = await services.insertOne(service);
+
+    res.status(201).send({
+      success: true,
+      message: "Service created successfully",
+      insertedId: result.insertedId,
+    });
+
+  } catch (error) {
+    console.error("Service creation error:", error);
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to create service",
     });
   }
  });
