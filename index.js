@@ -135,7 +135,65 @@ app.delete("/admin/service/:id", async(req,res)=>{
   }
 })
 
+app.patch("/admin/service/:id", async(req,res)=>{
+  // const{id} = req.params;
+  // const updateData = req.body
+  // const result = await services.updateOne(
+  //   {_id:new ObjectId(id)},
+  //   {$set:updateData}
+  // )
+  // res.json(result)
 
+   try {
+    const { id } = req.params;
+    const updateData = req.body;
+
+    // Validate MongoDB ObjectId
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({
+        success: false,
+        message: "Invalid service ID",
+      });
+    }
+
+    // Validate request body
+    if (!updateData || Object.keys(updateData).length === 0) {
+      return res.status(400).send({
+        success: false,
+        message: "No update data provided",
+      });
+    }
+
+    // Update service
+    const result = await services.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateData }
+    );
+
+    // Check service existence
+    if (result.matchedCount === 0) {
+      return res.status(404).send({
+        success: false,
+        message: "Service not found",
+      });
+    }
+
+    res.status(200).send({
+      success: true,
+      message: "Service updated successfully",
+      
+    });
+
+  } catch (error) {
+    console.error("Service update error:", error);
+
+    res.status(500).send({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+})
 //
 
 app.listen(process.env.PORT || 8000, ()=>{
