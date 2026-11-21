@@ -29,6 +29,23 @@ app.get('/', (req, res) => {
   res.send('Hello World!')
 })
 
+app.get("/users/counts", async(req,res)=>{
+  try {
+
+    const count = await collection.countDocuments();
+    res.send({
+    success: true,
+    count: count
+  });
+    
+  } catch (error) {
+    res.status(500).send({
+      success: false,
+      message: "Failed to count users"
+    });
+  }
+})
+
 ///admin api
 app.get("/users", async(req,res)=>{
      try {
