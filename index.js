@@ -232,6 +232,33 @@ app.get("/services", async(req,res)=>{
       message: "Failed to fetch services",
     });
   }
+});
+app.get("/sevices/limit", async(req,res)=>{
+  // const result = await services
+  //       .find({ active: true })
+  //       .limit(6)
+  //       .toArray();
+
+   try {
+    const result = await services
+      .find({ active: true })
+      .limit(6)
+      .toArray();
+
+    res.status(200).send({
+      success: true,
+      message: "Latest 6 active services fetched successfully",
+      data: result,
+    });
+
+  } catch (error) {
+    console.error("Error fetching services:", error);
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to fetch services",
+    });
+  }
 })
 
 app.get("/services/count", async(req,res)=>{
