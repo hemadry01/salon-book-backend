@@ -24,6 +24,7 @@ const db = connectedClient.db("salon-book")
 
 const collection = db.collection("user");
 const services = db.collection("services")
+const bookings = db.collection("bookings");
 
 app.get('/', (req, res) => {
   res.send('Hello World!')
@@ -261,6 +262,47 @@ app.get("/sevices/limit", async(req,res)=>{
   }
 })
 
+app.get("/service/:id", async(req,res)=>{
+  // const{id} = req.params;
+  // const result = await services.findOne({_id:new ObjectId(id)});
+  // res.send(result);
+   try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({
+        success: false,
+        message: "Invalid service ID",
+      });
+    }
+
+    const result = await services.findOne({
+      _id: new ObjectId(id),
+    });
+
+    if (!result) {
+      return res.status(404).send({
+        success: false,
+        message: "Service not found",
+      });
+    }
+
+    res.status(200).send({
+      success: true,
+      message: "Service fetched successfully",
+      data: result,
+    });
+
+  } catch (error) {
+    console.error("Error fetching service:", error);
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to fetch service",
+    });
+  }
+})
+
 app.get("/services/count", async(req,res)=>{
   try {
     const activeServices = await services.countDocuments({active: true});
@@ -276,6 +318,19 @@ app.get("/services/count", async(req,res)=>{
   }
 })
 //
+
+app.post("/booking", async(req,res)=>{
+  const booking = req.body;
+
+  const result = await bookings.insertOne(booking);
+
+  res.send({
+    success: true,
+    message: "Booking successful",
+    data: result,
+  });
+
+})
 
 app.listen(process.env.PORT || 8000, ()=>{
     console.log("Server is running on port 8000");
