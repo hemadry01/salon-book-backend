@@ -212,12 +212,34 @@ app.patch("/admin/service/:id", async(req,res)=>{
   }
 })
 
+app.get("/services", async(req,res)=>{
+    try {
+      const result = await services
+        .find({ active: true })
+        .toArray();
+
+      res.status(200).send({
+        success: true,
+        message: "Active services data fetched successfully",
+        data: result,
+      });
+
+  } catch (error) {
+    console.error("Error fetching services:", error);
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to fetch services",
+    });
+  }
+})
+
 app.get("/services/count", async(req,res)=>{
   try {
     const activeServices = await services.countDocuments({active: true});
     res.send({
     success: true,
-    count: activeServices
+    activecount: activeServices
   });
   } catch (error) {
     res.status(500).send({
