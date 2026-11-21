@@ -211,6 +211,21 @@ app.patch("/admin/service/:id", async(req,res)=>{
     });
   }
 })
+
+app.get("/services/count", async(req,res)=>{
+  try {
+    const activeServices = await services.countDocuments({active: true});
+    res.send({
+    success: true,
+    count: activeServices
+  });
+  } catch (error) {
+    res.status(500).send({
+      success: false,
+      message: "Failed to count services"
+    });
+  }
+})
 //
 
 app.listen(process.env.PORT || 8000, ()=>{
