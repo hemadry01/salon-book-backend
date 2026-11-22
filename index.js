@@ -319,18 +319,128 @@ app.get("/services/count", async(req,res)=>{
 })
 //
 
-app.post("/booking", async(req,res)=>{
-  const booking = req.body;
+app.post("/booking", async (req, res) => {
+  try {
+    const {
+      serviceId,
+      userId,
+      customerName,
+      customerEmail,
+      date,
+      time,
+      specialRequest,
+    } = req.body;
 
-  const result = await bookings.insertOne(booking);
+    // Validate required fields
+    if (
+      !serviceId ||
+      !userId ||
+      !customerName ||
+      !customerEmail ||
+      !date ||
+      !time
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide all required booking information",
+      });
+    }
 
-  res.send({
-    success: true,
-    message: "Booking successful",
-    data: result,
-  });
+    // Validate service ID
+    if (!ObjectId.isValid(serviceId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid service ID",
+      });
+    }
 
-})
+    // Check whether service exists
+    const service = await services.findOne({
+      _id: new ObjectId(serviceId),
+      active: true,
+    });
+
+    if (!service) {
+      return res.status(404).json({
+        success: false,
+        message: "Service not found or inactive",
+      });
+    }
+
+    // Create booking
+    const bookingData = {
+      serviceId: new ObjectId(serviceId),
+      userId: String(userId),
+      customerName,
+      customerEmail,
+      date,
+      time,
+      specialRequest: specialRequest || "",
+      serviceName: service.name,
+      price: service.price,
+      duration: service.duration,
+      status: "pending",
+      paymentStatus: "unpaid",
+      approved: false,
+      createdAt: new Date(),
+    };
+
+    const result = await bookings.insertOne(bookingData);
+
+    res.status(201).json({
+      success: true,
+      message: "Booking successful",
+      data: {
+        _id: result.insertedId,
+        ...bookingData,
+      },
+    });
+  } catch (error) {
+    console.error("Booking creation error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to create booking",
+    });
+  }
+});
+
+// app.get("/bookings-list", async (req, res) => {
+//   try {
+//     const allBookings = await bookings.find().toArray();
+
+//     res.status(200).json({
+//       success: true,
+//       total: allBookings.length,
+//       bookings: allBookings,
+//     });
+//   } catch (error) {
+//     res.status(500).json({
+//       success: false,
+//       message: error.message,
+//     });
+//   }
+// });
+app.get("/bookings-list/:email", async (req, res) => {
+  try {
+    const email = req.params.email;
+
+    const myBookings = await bookings.find({
+      customerEmail: email,
+    }).toArray();
+
+    res.status(200).json({
+      success: true,
+      total: myBookings.length,
+      bookings: myBookings,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
 
 app.listen(process.env.PORT || 8000, ()=>{
     console.log("Server is running on port 8000");
