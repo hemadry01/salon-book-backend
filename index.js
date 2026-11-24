@@ -2,11 +2,15 @@ import express from 'express';
 import cors from "cors";
 import 'dotenv/config';
 import { MongoClient, ObjectId } from 'mongodb';
+import Stripe from "stripe";
+import { jwtVerify, createRemoteJWKSet } from 'jose'
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 const client = new MongoClient(process.env.DB_URL);
 export async function connectToMongoDB() {
@@ -25,6 +29,74 @@ const db = connectedClient.db("salon-book")
 const collection = db.collection("user");
 const services = db.collection("services")
 const bookings = db.collection("bookings");
+const payments = db.collection("payments");
+
+const JWKS = createRemoteJWKSet(
+  new URL("http://localhost:3000/api/auth/jwks")
+);
+
+const checkAuthenticatedUser = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader) {
+      return res.status(401).json({
+        success: false,
+        message: "No token provided",
+      });
+    }
+
+    const [scheme, token] = authHeader.split(" ");
+
+    if (scheme !== "Bearer" || !token) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid token format",
+      });
+    }
+
+    const { payload, protectedHeader } = await jwtVerify(
+      token,
+      JWKS,
+      {
+        issuer: "http://localhost:3000",
+        audience: "http://localhost:3000",
+        algorithms: ["EdDSA"],
+      }
+    );
+
+    console.log("JWT HEADER:", protectedHeader);
+    console.log("JWT PAYLOAD:", payload);
+
+    req.user = payload;
+
+    next();
+
+  } catch (error) {
+    console.error("JWT ERROR NAME:", error.name);
+    console.error("JWT ERROR MESSAGE:", error.message);
+
+    return res.status(401).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+const verifyRole = (roles) => {
+  return (req, res, next) => {
+    const role = req.user?.role;
+
+    if (roles.includes(role)) {
+      return next();
+    }
+
+    return res.status(403).json({
+      success: false,
+      message: "You do not have permission to access this resource",
+    });
+  };
+};
 
 app.get('/', (req, res) => {
   res.send('Hello World!')
@@ -48,7 +120,7 @@ app.get("/users/counts", async(req,res)=>{
 })
 
 ///admin api
-app.get("/users", async(req,res)=>{
+app.get("/users",checkAuthenticatedUser,verifyRole(["admin"]) , async(req,res)=>{
      try {
     const result = await collection.find({}).toArray();
 
@@ -319,91 +391,147 @@ app.get("/services/count", async(req,res)=>{
 })
 //
 
-app.post("/booking", async (req, res) => {
-  try {
-    const {
-      serviceId,
-      userId,
-      customerName,
-      customerEmail,
-      date,
-      time,
-      specialRequest,
-    } = req.body;
+// app.post("/booking", checkAuthenticatedUser, async (req, res) => {
+// app.post("/booking", async (req, res) => {
+//   try {
+//     const { serviceId, date, time, specialRequest } = req.body || {};
 
-    // Validate required fields
-    if (
-      !serviceId ||
-      !userId ||
-      !customerName ||
-      !customerEmail ||
-      !date ||
-      !time
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Please provide all required booking information",
-      });
-    }
+//     // User identity must come from the verified JWT, not from the request body
+//     const userId = req.user?.id || req.user?.sub;
+//     const customerName = req.user?.name;
+//     const customerEmail = req.user?.email;
 
-    // Validate service ID
-    if (!ObjectId.isValid(serviceId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid service ID",
-      });
-    }
+//     if (!userId || !customerName || !customerEmail) {
+//       return res.status(401).json({
+//         success: false,
+//         message: "Invalid login session. Please login again.",
+//       });
+//     }
 
-    // Check whether service exists
-    const service = await services.findOne({
-      _id: new ObjectId(serviceId),
-      active: true,
-    });
+//     // Validate required fields
+//     if (!serviceId || !date || !time) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Please provide service, date and time",
+//       });
+//     }
 
-    if (!service) {
-      return res.status(404).json({
-        success: false,
-        message: "Service not found or inactive",
-      });
-    }
+//     // Validate service ID
+//     if (!ObjectId.isValid(serviceId)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Invalid service ID",
+//       });
+//     }
 
-    // Create booking
-    const bookingData = {
-      serviceId: new ObjectId(serviceId),
-      userId: String(userId),
-      customerName,
-      customerEmail,
-      date,
-      time,
-      specialRequest: specialRequest || "",
-      serviceName: service.name,
-      price: service.price,
-      duration: service.duration,
-      status: "pending",
-      paymentStatus: "unpaid",
-      approved: false,
-      createdAt: new Date(),
-    };
+//     // Validate date (YYYY-MM-DD) and time (HH:mm)
+//     const parsedDate = new Date(`${date}T00:00:00Z`);
 
-    const result = await bookings.insertOne(bookingData);
+//     if (
+//       typeof date !== "string" ||
+//       !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+//       Number.isNaN(parsedDate.getTime()) ||
+//       parsedDate.toISOString().slice(0, 10) !== date
+//     ) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Date must be a valid date in YYYY-MM-DD format",
+//       });
+//     }
 
-    res.status(201).json({
-      success: true,
-      message: "Booking successful",
-      data: {
-        _id: result.insertedId,
-        ...bookingData,
-      },
-    });
-  } catch (error) {
-    console.error("Booking creation error:", error);
+//     if (typeof time !== "string" || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Time must be in HH:mm format (24-hour)",
+//       });
+//     }
 
-    res.status(500).json({
-      success: false,
-      message: "Failed to create booking",
-    });
-  }
-});
+//     const now = new Date();
+//     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
+//       2,
+//       "0"
+//     )}-${String(now.getDate()).padStart(2, "0")}`;
+
+//     if (date < today) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Booking date cannot be in the past",
+//       });
+//     }
+
+//     // Check whether service exists
+//     const service = await services.findOne({
+//       _id: new ObjectId(serviceId),
+//       active: true,
+//     });
+
+//     if (!service) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Service not found or inactive",
+//       });
+//     }
+
+//     const serviceObjectId = new ObjectId(serviceId);
+
+//     // Prevent duplicate bookings for the same service, date and time
+//     const existingBooking = await bookings.findOne({
+//       userId,
+//       serviceId: serviceObjectId,
+//       date,
+//       time,
+//       status: { $nin: ["cancelled", "rejected"] },
+//     });
+
+//     if (existingBooking) {
+//       return res.status(409).json({
+//         success: false,
+//         message:
+//           "You already have a booking for this service at this date and time",
+//       });
+//     }
+
+//     // Create booking
+//     const bookingData = {
+//       serviceId: serviceObjectId,
+//       userId,
+//       customerName,
+//       customerEmail,
+//       date,
+//       time,
+//       specialRequest:
+//         typeof specialRequest === "string"
+//           ? specialRequest.trim().slice(0, 500)
+//           : "",
+//       serviceName: service.name,
+//       price: service.price,
+//       duration: service.duration,
+//       status: "pending",
+//       paymentStatus: "unpaid",
+//       approved: false,
+//       createdAt: new Date(),
+//       updatedAt: new Date(),
+//     };
+
+//     const result = await bookings.insertOne(bookingData);
+
+//     res.status(201).json({
+//       success: true,
+//       message: "Booking successful",
+//       data: {
+//         _id: result.insertedId,
+//         ...bookingData,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Booking creation error:", error);
+
+//     res.status(500).json({
+//       success: false,
+//       message: "Failed to create booking",
+//     });
+//   }
+// });
 
 // app.get("/bookings-list", async (req, res) => {
 //   try {
@@ -441,6 +569,214 @@ app.get("/bookings-list/:email", async (req, res) => {
     });
   }
 });
+
+// app.get("/bookings",checkAuthenticatedUser, verifyRole(["admin"]),async (req, res, next) => {
+app.get("/bookings",async (req, res, next) => {
+    try {
+      const allBookings = await bookings
+        .find({})
+        .sort({ createdAt: -1 })
+        .toArray();
+
+      res.status(200).json({
+        success: true,
+        total: allBookings.length,
+        bookings: allBookings.map((booking) => ({
+          ...booking,
+          _id: booking._id.toString(),
+          serviceId: booking.serviceId.toString(),
+          createdAt: booking.createdAt?.toISOString(),
+        })),
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+// app.patch("/bookings/:id/status",checkAuthenticatedUser,verifyRole(["admin"]),async (req, res, next) => {
+app.patch("/bookings/:id/status",async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const { status } = req.body;
+
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid booking ID",
+        });
+      }
+
+      if (!["confirmed", "rejected"].includes(status)) {
+        return res.status(400).json({
+          success: false,
+          message: "Status must be confirmed or rejected",
+        });
+      }
+      const result = await bookings.updateOne(
+        {
+          _id: new ObjectId(id),
+          status: "pending",
+        },
+        {
+          $set: {
+            status,
+            approved: status === "confirmed",
+            updatedAt: new Date(),
+          },
+        }
+      );
+
+      if (result.matchedCount === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "Booking not found or already processed",
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: `Booking ${status} successfully`,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+app.patch("/admin-bookings/:id/status", async (req, res) => {
+ const {id} = req.params
+ const result = await bookings.updateOne(
+    {
+      _id: new ObjectId(id),
+      status: "pending",
+    },
+    {
+      $set: {
+        status: "rejected",
+        approved: false,
+        updatedAt: new Date(),
+      },
+    }
+  );
+
+  if (result.matchedCount === 0) {
+    return res.send({
+      success: false,
+      message: "Booking not found",
+    });
+  }
+
+  res.send({
+    success: true,
+    message: "Booking rejected successfully",
+  });
+});
+
+// app.patch( "/bookings/:id/cancel",checkAuthenticatedUser,verifyRole(["user"]),async (req, res, next) => {
+app.patch( "/bookings/:id/cancel",async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid booking ID",
+        });
+      }
+      const userId = req.user?.id || req.user?.sub;
+
+      if (!userId) {
+        return res.status(401).json({
+          success: false,
+          message: "User ID not found",
+        });
+      }
+      const result = await bookings.updateOne(
+        {
+          _id: new ObjectId(id),
+          userId:userId,
+          status: { $in: ["pending", "rejected"] },
+        },
+        {
+          $set: {
+            status: "rejected",
+            approved: false,
+            updatedAt: new Date(),
+          },
+        }
+      );
+
+      if (result.matchedCount === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "Booking not found or cannot be cancelled",
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: "Booking cancelled successfully",
+      });
+    } catch (error) {
+      
+    }
+  }
+);
+////////////////////////// change ////////////////////
+app.post("/payments/checkout-verify", async(req,res)=>{
+  const{sessionId} =req.body;
+  
+  const {
+      status,
+      payment_status,
+      customer_details,
+      metadata,
+      payment_intent,
+    } = await stripe.checkout.sessions.retrieve(sessionId);
+
+    
+    if(status === "complete" && payment_status === "paid"){
+
+
+      const sessionQuery = {sessionId};
+      const existingPayment = await payments.findOne(sessionQuery);
+      if(!existingPayment){
+        return res.send({success:false, message:'Payment already verified'});
+      }
+
+      const payment ={
+        sessionId,
+        status,
+        payment_status,
+        customer_details,
+        userId:metadata.userId,
+        paymet_date:new Date(),
+        payment_intent,
+      }
+
+      const result = await payments.insertOne(payment);
+      const query = {_id:new ObjectId(metadata.userId)};
+      const updateDoc ={
+        $set:{
+          premium:true,
+        }
+      }
+
+      const updateResult = await collection.updateOne(
+        query,
+        updateDoc
+    );
+     res.send({
+      success: true,
+      result,
+      updateResult,
+    });
+     return
+    }
+
+  res.send({success:false,message:"Payment verification failed"});
+})
+/////////////////////////////////////////////////////
+
 
 app.listen(process.env.PORT || 8000, ()=>{
     console.log("Server is running on port 8000");
