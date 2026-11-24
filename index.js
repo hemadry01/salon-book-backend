@@ -120,7 +120,8 @@ app.get("/users/counts", async(req,res)=>{
 })
 
 ///admin api
-app.get("/users",checkAuthenticatedUser,verifyRole(["admin"]) , async(req,res)=>{
+// app.get("/users",checkAuthenticatedUser,verifyRole(["admin"]) , async(req,res)=>{
+app.get("/users", async(req,res)=>{
      try {
     const result = await collection.find({}).toArray();
 
@@ -140,6 +141,53 @@ app.get("/users",checkAuthenticatedUser,verifyRole(["admin"]) , async(req,res)=>
     });
   }
  });
+
+ app.patch("/admin/user/:id/status" , async(req,res)=>{
+  try {
+
+    const {id} = req.params;
+    const {isBlocked} = req.body
+
+    if(!ObjectId.isValid(id)){
+      return res.status(400).send({
+        success: false,
+        message: "Invalid user ID",
+      });
+    }
+
+    if(typeof isBlocked !== "boolean"){
+      return res.status(400).send({
+        success: false,
+        message: "isBlocked must be true or false",
+      });
+    }
+   
+   const result = await collection.updateOne(
+    {
+      _id:new ObjectId(id),},
+    {
+      $set:{
+        isBlocked:isBlocked
+      }
+    }
+   );
+   if(result.matchedCount === 0){
+    return res.status(404).send({
+      success: false,
+      message: "User not found",
+    });
+   }
+
+   res.send(result);
+    
+  } catch (error) {
+    console.error(error);
+    res.status(500).send({
+      success: false,
+      message: "Internal server error",
+    })
+  }
+ })
 
  app.post("/admin/add-service", async(req,res)=>{
   // const service = req.body
