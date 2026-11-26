@@ -524,20 +524,195 @@ app.delete("/booking/:id", async(req,res)=>{
 })
 //
 
-app.post("/booking", async (req, res) => {
 // app.post("/booking", async (req, res) => {
+// // app.post("/booking", async (req, res) => {
+//   try {
+//     const { serviceId, date, time, specialRequest } = req.body || {};
+
+//     // User identity must come from the verified JWT, not from the request body
+//     const userId = req.user?.id || req.user?.sub;
+//     const customerName = req.user?.name;
+//     const customerEmail = req.user?.email;
+
+//     if (!userId || !customerName || !customerEmail) {
+//       return res.status(401).json({
+//         success: false,
+//         message: "Invalid login session. Please login again.",
+//       });
+//     }
+
+//     // Validate required fields
+//     if (!serviceId || !date || !time) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Please provide service, date and time",
+//       });
+//     }
+
+//     // Validate service ID
+//     if (!ObjectId.isValid(serviceId)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Invalid service ID",
+//       });
+//     }
+
+//     const parsedDate = new Date(`${date}T00:00:00Z`);
+
+//     if (
+//       typeof date !== "string" ||
+//       !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+//       Number.isNaN(parsedDate.getTime()) ||
+//       parsedDate.toISOString().slice(0, 10) !== date
+//     ) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Date must be a valid date in YYYY-MM-DD format",
+//       });
+//     }
+
+//     if (typeof time !== "string" || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Time must be in HH:mm format (24-hour)",
+//       });
+//     }
+
+//     const now = new Date();
+//     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
+//       2,
+//       "0"
+//     )}-${String(now.getDate()).padStart(2, "0")}`;
+
+//     if (date < today) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Booking date cannot be in the past",
+//       });
+//     }
+
+//     // Check whether service exists
+//     const service = await services.findOne({
+//       _id: new ObjectId(serviceId),
+//       active: true,
+//     });
+
+//     if (!service) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Service not found or inactive",
+//       });
+//     }
+
+//     const serviceObjectId = new ObjectId(serviceId);
+
+//     // Prevent duplicate bookings for the same service, date and time
+//     const existingBooking = await bookings.findOne({
+//       userId,
+//       serviceId: serviceObjectId,
+//       date,
+//       time,
+//       status: { $nin: ["cancelled", "rejected"] },
+//     });
+
+//     if (existingBooking) {
+//       return res.status(409).json({
+//         success: false,
+//         message:
+//           "You already have a booking for this service at this date and time",
+//       });
+//     }
+
+//     // Create booking
+//     const bookingData = {
+//       serviceId: serviceObjectId,
+//       userId,
+//       customerName,
+//       customerEmail,
+//       date,
+//       time,
+//       specialRequest:
+//         typeof specialRequest === "string"
+//           ? specialRequest.trim().slice(0, 500)
+//           : "",
+//       serviceName: service.name,
+//       price: service.price,
+//       duration: service.duration,
+//       status: "pending",
+//       paymentStatus: "unpaid",
+//       approved: false,
+//       createdAt: new Date(),
+//       updatedAt: new Date(),
+//     };
+
+//     const result = await bookings.insertOne(bookingData);
+
+//     res.status(201).json({
+//       success: true,
+//       message: "Booking successful",
+//       data: {
+//         _id: result.insertedId,
+//         ...bookingData,
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Booking creation error:", error);
+
+//     res.status(500).json({
+//       success: false,
+//       message: "Failed to create booking",
+//     });
+//   }
+// });
+
+const verifyInternalRequest = (req, res, next) => {
+  const expectedSecret = process.env.INTERNAL_API_SECRET;
+  const providedSecret = req.headers["x-internal-api-secret"];
+
+  if (!expectedSecret) {
+    console.error("INTERNAL_API_SECRET is not configured");
+
+    return res.status(500).json({
+      success: false,
+      message: "Booking service is not configured",
+    });
+  }
+
+  if (typeof providedSecret !== "string" || providedSecret !== expectedSecret) {
+    return res.status(401).json({
+      success: false,
+      message: "Unauthorized request",
+    });
+  }
+
+  next();
+};
+
+
+app.post("/booking", verifyInternalRequest, async (req, res) => {
   try {
-    const { serviceId, date, time, specialRequest } = req.body || {};
+    const {
+      serviceId,
+      date,
+      time,
+      specialRequest,
+      userId,
+      customerName,
+      customerEmail,
+    } = req.body || {};
 
-    // User identity must come from the verified JWT, not from the request body
-    const userId = req.user?.id || req.user?.sub;
-    const customerName = req.user?.name;
-    const customerEmail = req.user?.email;
-
-    if (!userId || !customerName || !customerEmail) {
-      return res.status(401).json({
+    // Validate customer
+    if (
+      typeof userId !== "string" ||
+      !userId.trim() ||
+      typeof customerName !== "string" ||
+      !customerName.trim() ||
+      typeof customerEmail !== "string" ||
+      !customerEmail.trim()
+    ) {
+      return res.status(400).json({
         success: false,
-        message: "Invalid login session. Please login again.",
+        message: "Valid customer information is required",
       });
     }
 
@@ -545,44 +720,61 @@ app.post("/booking", async (req, res) => {
     if (!serviceId || !date || !time) {
       return res.status(400).json({
         success: false,
-        message: "Please provide service, date and time",
+        message: "Service, date and time are required",
       });
     }
 
     // Validate service ID
-    if (!ObjectId.isValid(serviceId)) {
+    if (
+      typeof serviceId !== "string" ||
+      !ObjectId.isValid(serviceId)
+    ) {
       return res.status(400).json({
         success: false,
         message: "Invalid service ID",
       });
     }
 
-    const parsedDate = new Date(`${date}T00:00:00Z`);
+    const serviceObjectId = new ObjectId(serviceId);
 
+    // Validate date
     if (
       typeof date !== "string" ||
-      !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(date)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid date format",
+      });
+    }
+
+    const parsedDate = new Date(`${date}T00:00:00.000Z`);
+
+    if (
       Number.isNaN(parsedDate.getTime()) ||
       parsedDate.toISOString().slice(0, 10) !== date
     ) {
       return res.status(400).json({
         success: false,
-        message: "Date must be a valid date in YYYY-MM-DD format",
+        message: "Invalid appointment date",
       });
     }
 
-    if (typeof time !== "string" || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+    // Validate time
+    if (
+      typeof time !== "string" ||
+      !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)
+    ) {
       return res.status(400).json({
         success: false,
-        message: "Time must be in HH:mm format (24-hour)",
+        message: "Time must be in HH:mm format",
       });
     }
 
-    const now = new Date();
-    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
-      2,
-      "0"
-    )}-${String(now.getDate()).padStart(2, "0")}`;
+    // Prevent past dates (Bangladesh timezone)
+    const today = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Dhaka",
+    }).format(new Date());
 
     if (date < today) {
       return res.status(400).json({
@@ -591,9 +783,9 @@ app.post("/booking", async (req, res) => {
       });
     }
 
-    // Check whether service exists
+    // Find active service
     const service = await services.findOne({
-      _id: new ObjectId(serviceId),
+      _id: serviceObjectId,
       active: true,
     });
 
@@ -604,50 +796,56 @@ app.post("/booking", async (req, res) => {
       });
     }
 
-    const serviceObjectId = new ObjectId(serviceId);
-
-    // Prevent duplicate bookings for the same service, date and time
+    // Check duplicate booking by same user
     const existingBooking = await bookings.findOne({
-      userId,
+      userId: userId.trim(),
       serviceId: serviceObjectId,
       date,
       time,
-      status: { $nin: ["cancelled", "rejected"] },
+      status: {
+        $nin: ["cancelled", "rejected"],
+      },
     });
 
     if (existingBooking) {
       return res.status(409).json({
         success: false,
-        message:
-          "You already have a booking for this service at this date and time",
+        message: "You already booked this service at this time",
       });
     }
 
-    // Create booking
+    // Prepare booking
     const bookingData = {
       serviceId: serviceObjectId,
-      userId,
-      customerName,
-      customerEmail,
+      userId: userId.trim(),
+
+      customerName: customerName.trim(),
+      customerEmail: customerEmail.trim().toLowerCase(),
+
       date,
       time,
+
       specialRequest:
         typeof specialRequest === "string"
           ? specialRequest.trim().slice(0, 500)
           : "",
+
       serviceName: service.name,
       price: service.price,
       duration: service.duration,
+
       status: "pending",
       paymentStatus: "unpaid",
       approved: false,
+
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
+    // Insert booking
     const result = await bookings.insertOne(bookingData);
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: "Booking successful",
       data: {
@@ -658,12 +856,17 @@ app.post("/booking", async (req, res) => {
   } catch (error) {
     console.error("Booking creation error:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to create booking",
+      ...(process.env.NODE_ENV !== "production" && {
+        error: error.message,
+      }),
     });
   }
 });
+
+
 
 app.get("/bookings/:id", async (req, res) => {
    try {
