@@ -1,11 +1,92 @@
-import express from 'express';
+import express, { application, json } from 'express';
 import cors from "cors";
 import 'dotenv/config';
 import { MongoClient, ObjectId } from 'mongodb';
 import Stripe from "stripe";
-import { jwtVerify, createRemoteJWKSet } from 'jose'
 
 const app = express();
+
+app.post(
+  "/api/webhooks/stripe",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    try {
+      const signature = req.headers["stripe-signature"];
+
+      const event = stripe.webhooks.constructEvent(
+        req.body,
+        signature,
+        process.env.STRIPE_WEBHOOK_SECRET
+      );
+
+      console.log("Stripe event type:", event.type);
+
+      if (event.type === "checkout.session.completed") {
+        const session = event.data.object;
+
+        const bookingId = session.metadata?.bookingId;
+        const userId = session.metadata?.userId;
+
+        console.log("Booking ID:", bookingId);
+        console.log("Payment status:", session.payment_status);
+
+        if (!bookingId) {
+          console.log("Booking ID not found!");
+          return res.status(400).json({
+            error: "Booking ID missing"
+          });
+        }
+
+        if (session.payment_status !== "paid") {
+          return res.status(200).json({
+            received: true,
+            message: "Payment not completed"
+          });
+        }
+
+        const result = await bookings.updateOne(
+          {
+            _id: new ObjectId(bookingId)
+          },
+          {
+            $set: {
+              paymentStatus: "paid"
+            }
+          }
+        );
+        const data = await payments.insertOne({
+          stripeSessionId: session.id,
+          userId:userId,
+          bookingId:bookingId,
+          paymentIntent: session.payment_intent,
+          paymentStatus: "paid",
+          createdAt: new Date(),
+        })
+
+        const valuse = await data.json(); 
+
+        console.log("Database update:", result);
+        alert("Database add data:", valuse);
+
+        if (result.matchedCount === 0) {
+          console.log("Booking not found in database!");
+        }
+      }
+
+      return res.status(200).json({
+        received: true
+      });
+
+    } catch (error) {
+      console.error("Webhook error:", error.message);
+
+      return res.status(400).json({
+        error: error.message
+      });
+    }
+  }
+);
+
 
 app.use(cors());
 app.use(express.json());
@@ -23,6 +104,7 @@ export async function connectToMongoDB() {
   }
 }
 
+
 const connectedClient = await connectToMongoDB();
 const db = connectedClient.db("salon-book")
 
@@ -31,76 +113,10 @@ const services = db.collection("services")
 const bookings = db.collection("bookings");
 const payments = db.collection("payments");
 
-const JWKS = createRemoteJWKSet(
-  new URL("http://localhost:3000/api/auth/jwks")
-);
-
-const checkAuthenticatedUser = async (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization;
-
-    if (!authHeader) {
-      return res.status(401).json({
-        success: false,
-        message: "No token provided",
-      });
-    }
-
-    const [scheme, token] = authHeader.split(" ");
-
-    if (scheme !== "Bearer" || !token) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid token format",
-      });
-    }
-
-    const { payload, protectedHeader } = await jwtVerify(
-      token,
-      JWKS,
-      {
-        issuer: "http://localhost:3000",
-        audience: "http://localhost:3000",
-        algorithms: ["EdDSA"],
-      }
-    );
-
-    console.log("JWT HEADER:", protectedHeader);
-    console.log("JWT PAYLOAD:", payload);
-
-    req.user = payload;
-
-    next();
-
-  } catch (error) {
-    console.error("JWT ERROR NAME:", error.name);
-    console.error("JWT ERROR MESSAGE:", error.message);
-
-    return res.status(401).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-const verifyRole = (roles) => {
-  return (req, res, next) => {
-    const role = req.user?.role;
-
-    if (roles.includes(role)) {
-      return next();
-    }
-
-    return res.status(403).json({
-      success: false,
-      message: "You do not have permission to access this resource",
-    });
-  };
-};
 
 app.get('/', (req, res) => {
   res.send('Hello World!')
-})
+});
 
 app.get("/users/counts", async(req,res)=>{
   try {
@@ -117,11 +133,9 @@ app.get("/users/counts", async(req,res)=>{
       message: "Failed to count users"
     });
   }
-})
+});
 
-///admin api
-// app.get("/users",checkAuthenticatedUser,verifyRole(["admin"]) , async(req,res)=>{
-app.get("/users", async(req,res)=>{
+app.get("/users",async(req,res)=>{
      try {
     const result = await collection.find({}).toArray();
 
@@ -141,6 +155,54 @@ app.get("/users", async(req,res)=>{
     });
   }
  });
+
+ app.patch("/profile/update/:id", async(req,res)=>{
+ try {
+   const {id} = req.params;
+   const { name, email, image } = req.body;
+
+  if(!ObjectId.isValid(id)){
+     return res.status(400).send({
+        success: false,
+        message: "Invalid user ID",
+      });
+
+    }
+      if (typeof name !== "string" || !name.trim()) {
+      return res.status(400).send({
+        success: false,
+        message: "Name is required",
+      });
+    }
+
+      if (typeof email !== "string" || !email.trim()) {
+      return res.status(400).send({
+        success: false,
+        message: "Email is required",
+      });
+    }
+
+    const result = await collection.updateOne(
+      {_id:new ObjectId(id)},
+      {$set:{name:name.trim(), email, image}}
+    )
+
+     res.status(200).send({
+      success: true,
+      message: "Profile updated successfully",
+      
+    });  
+  
+ } catch (error) {
+  console.error("Service update error:", error);
+
+    res.status(500).send({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+ }
+ })
 
  app.patch("/admin/user/:id/status" , async(req,res)=>{
   try {
@@ -187,7 +249,7 @@ app.get("/users", async(req,res)=>{
       message: "Internal server error",
     })
   }
- })
+ });
 
  app.post("/admin/add-service", async(req,res)=>{
   // const service = req.body
@@ -239,7 +301,7 @@ app.get("/users", async(req,res)=>{
       data: [],
     });
     }
- })
+ });
 
 app.delete("/admin/service/:id", async(req,res)=>{
 
@@ -271,7 +333,7 @@ app.delete("/admin/service/:id", async(req,res)=>{
       error: error.message,
     });
   }
-})
+});
 
 app.patch("/admin/service/:id", async(req,res)=>{
   // const{id} = req.params;
@@ -331,7 +393,7 @@ app.patch("/admin/service/:id", async(req,res)=>{
       error: error.message,
     });
   }
-})
+});
 
 app.get("/services", async(req,res)=>{
     try {
@@ -380,7 +442,7 @@ app.get("/sevices/limit", async(req,res)=>{
       message: "Failed to fetch services",
     });
   }
-})
+});
 
 app.get("/service/:id", async(req,res)=>{
   // const{id} = req.params;
@@ -421,7 +483,7 @@ app.get("/service/:id", async(req,res)=>{
       message: "Failed to fetch service",
     });
   }
-})
+});
 
 app.get("/services/count", async(req,res)=>{
   try {
@@ -436,167 +498,200 @@ app.get("/services/count", async(req,res)=>{
       message: "Failed to count services"
     });
   }
+});
+
+app.delete("/booking/:id", async(req,res)=>{
+ try {
+   const {id} = req.params;
+
+   if(!ObjectId.isValid(id)){
+      return res.status(400).send({ message: "Invalid booking ID" });
+    }
+
+   const result = await bookings.deleteOne({_id:new ObjectId(id)})
+
+    res.status(200).send({
+      message: "Service deleted Successfully",
+      result
+    })
+  
+ } catch (error) {
+  res.status(500).send({
+      message: "Failed to delete service",
+      error: error.message,
+    });
+ }
 })
 //
 
-// app.post("/booking", checkAuthenticatedUser, async (req, res) => {
+app.post("/booking", async (req, res) => {
 // app.post("/booking", async (req, res) => {
-//   try {
-//     const { serviceId, date, time, specialRequest } = req.body || {};
+  try {
+    const { serviceId, date, time, specialRequest } = req.body || {};
 
-//     // User identity must come from the verified JWT, not from the request body
-//     const userId = req.user?.id || req.user?.sub;
-//     const customerName = req.user?.name;
-//     const customerEmail = req.user?.email;
+    // User identity must come from the verified JWT, not from the request body
+    const userId = req.user?.id || req.user?.sub;
+    const customerName = req.user?.name;
+    const customerEmail = req.user?.email;
 
-//     if (!userId || !customerName || !customerEmail) {
-//       return res.status(401).json({
-//         success: false,
-//         message: "Invalid login session. Please login again.",
-//       });
-//     }
+    if (!userId || !customerName || !customerEmail) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid login session. Please login again.",
+      });
+    }
 
-//     // Validate required fields
-//     if (!serviceId || !date || !time) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Please provide service, date and time",
-//       });
-//     }
+    // Validate required fields
+    if (!serviceId || !date || !time) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide service, date and time",
+      });
+    }
 
-//     // Validate service ID
-//     if (!ObjectId.isValid(serviceId)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Invalid service ID",
-//       });
-//     }
+    // Validate service ID
+    if (!ObjectId.isValid(serviceId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid service ID",
+      });
+    }
 
-//     // Validate date (YYYY-MM-DD) and time (HH:mm)
-//     const parsedDate = new Date(`${date}T00:00:00Z`);
+    const parsedDate = new Date(`${date}T00:00:00Z`);
 
-//     if (
-//       typeof date !== "string" ||
-//       !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
-//       Number.isNaN(parsedDate.getTime()) ||
-//       parsedDate.toISOString().slice(0, 10) !== date
-//     ) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Date must be a valid date in YYYY-MM-DD format",
-//       });
-//     }
+    if (
+      typeof date !== "string" ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+      Number.isNaN(parsedDate.getTime()) ||
+      parsedDate.toISOString().slice(0, 10) !== date
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Date must be a valid date in YYYY-MM-DD format",
+      });
+    }
 
-//     if (typeof time !== "string" || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Time must be in HH:mm format (24-hour)",
-//       });
-//     }
+    if (typeof time !== "string" || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+      return res.status(400).json({
+        success: false,
+        message: "Time must be in HH:mm format (24-hour)",
+      });
+    }
 
-//     const now = new Date();
-//     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
-//       2,
-//       "0"
-//     )}-${String(now.getDate()).padStart(2, "0")}`;
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
+      2,
+      "0"
+    )}-${String(now.getDate()).padStart(2, "0")}`;
 
-//     if (date < today) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Booking date cannot be in the past",
-//       });
-//     }
+    if (date < today) {
+      return res.status(400).json({
+        success: false,
+        message: "Booking date cannot be in the past",
+      });
+    }
 
-//     // Check whether service exists
-//     const service = await services.findOne({
-//       _id: new ObjectId(serviceId),
-//       active: true,
-//     });
+    // Check whether service exists
+    const service = await services.findOne({
+      _id: new ObjectId(serviceId),
+      active: true,
+    });
 
-//     if (!service) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Service not found or inactive",
-//       });
-//     }
+    if (!service) {
+      return res.status(404).json({
+        success: false,
+        message: "Service not found or inactive",
+      });
+    }
 
-//     const serviceObjectId = new ObjectId(serviceId);
+    const serviceObjectId = new ObjectId(serviceId);
 
-//     // Prevent duplicate bookings for the same service, date and time
-//     const existingBooking = await bookings.findOne({
-//       userId,
-//       serviceId: serviceObjectId,
-//       date,
-//       time,
-//       status: { $nin: ["cancelled", "rejected"] },
-//     });
+    // Prevent duplicate bookings for the same service, date and time
+    const existingBooking = await bookings.findOne({
+      userId,
+      serviceId: serviceObjectId,
+      date,
+      time,
+      status: { $nin: ["cancelled", "rejected"] },
+    });
 
-//     if (existingBooking) {
-//       return res.status(409).json({
-//         success: false,
-//         message:
-//           "You already have a booking for this service at this date and time",
-//       });
-//     }
+    if (existingBooking) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "You already have a booking for this service at this date and time",
+      });
+    }
 
-//     // Create booking
-//     const bookingData = {
-//       serviceId: serviceObjectId,
-//       userId,
-//       customerName,
-//       customerEmail,
-//       date,
-//       time,
-//       specialRequest:
-//         typeof specialRequest === "string"
-//           ? specialRequest.trim().slice(0, 500)
-//           : "",
-//       serviceName: service.name,
-//       price: service.price,
-//       duration: service.duration,
-//       status: "pending",
-//       paymentStatus: "unpaid",
-//       approved: false,
-//       createdAt: new Date(),
-//       updatedAt: new Date(),
-//     };
+    // Create booking
+    const bookingData = {
+      serviceId: serviceObjectId,
+      userId,
+      customerName,
+      customerEmail,
+      date,
+      time,
+      specialRequest:
+        typeof specialRequest === "string"
+          ? specialRequest.trim().slice(0, 500)
+          : "",
+      serviceName: service.name,
+      price: service.price,
+      duration: service.duration,
+      status: "pending",
+      paymentStatus: "unpaid",
+      approved: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
 
-//     const result = await bookings.insertOne(bookingData);
+    const result = await bookings.insertOne(bookingData);
 
-//     res.status(201).json({
-//       success: true,
-//       message: "Booking successful",
-//       data: {
-//         _id: result.insertedId,
-//         ...bookingData,
-//       },
-//     });
-//   } catch (error) {
-//     console.error("Booking creation error:", error);
+    res.status(201).json({
+      success: true,
+      message: "Booking successful",
+      data: {
+        _id: result.insertedId,
+        ...bookingData,
+      },
+    });
+  } catch (error) {
+    console.error("Booking creation error:", error);
 
-//     res.status(500).json({
-//       success: false,
-//       message: "Failed to create booking",
-//     });
-//   }
-// });
+    res.status(500).json({
+      success: false,
+      message: "Failed to create booking",
+    });
+  }
+});
 
-// app.get("/bookings-list", async (req, res) => {
-//   try {
-//     const allBookings = await bookings.find().toArray();
+app.get("/bookings/:id", async (req, res) => {
+   try {
+    const id = req.params.id;
 
-//     res.status(200).json({
-//       success: true,
-//       total: allBookings.length,
-//       bookings: allBookings,
-//     });
-//   } catch (error) {
-//     res.status(500).json({
-//       success: false,
-//       message: error.message,
-//     });
-//   }
-// });
+    const booking = await bookings.findOne({
+      _id: new ObjectId(id),
+    });
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      booking,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
 app.get("/bookings-list/:email", async (req, res) => {
   try {
     const email = req.params.email;
@@ -618,7 +713,42 @@ app.get("/bookings-list/:email", async (req, res) => {
   }
 });
 
-// app.get("/bookings",checkAuthenticatedUser, verifyRole(["admin"]),async (req, res, next) => {
+app.get("/total-bookings/:email", async (req, res) => {
+  try {
+    const email = req.params.email;
+
+    const totalBooking = await bookings.countDocuments({
+      customerEmail: email,
+    });
+    const pendingBooking = await bookings.countDocuments({
+      customerEmail: email,
+      status: "pending",
+    });
+
+    const confirmBooking = await bookings.countDocuments({
+      customerEmail: email,
+      status: "confirmed",
+    });
+    const rejectedBooking = await bookings.countDocuments({
+      customerEmail: email,
+      status: "rejected",
+    });
+
+    res.status(200).json({
+      success: true,
+      totalBooking,
+      pendingBooking,
+      confirmBooking,
+      rejectedBooking,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
 app.get("/bookings",async (req, res, next) => {
     try {
       const allBookings = await bookings
@@ -641,7 +771,7 @@ app.get("/bookings",async (req, res, next) => {
     }
   }
 );
-// app.patch("/bookings/:id/status",checkAuthenticatedUser,verifyRole(["admin"]),async (req, res, next) => {
+
 app.patch("/bookings/:id/status",async (req, res, next) => {
     try {
       const { id } = req.params;
@@ -719,7 +849,6 @@ app.patch("/admin-bookings/:id/status", async (req, res) => {
   });
 });
 
-// app.patch( "/bookings/:id/cancel",checkAuthenticatedUser,verifyRole(["user"]),async (req, res, next) => {
 app.patch( "/bookings/:id/cancel",async (req, res) => {
     try {
       const { id } = req.params;
@@ -769,63 +898,154 @@ app.patch( "/bookings/:id/cancel",async (req, res) => {
     }
   }
 );
-////////////////////////// change ////////////////////
-app.post("/payments/checkout-verify", async(req,res)=>{
-  const{sessionId} =req.body;
-  
-  const {
-      status,
-      payment_status,
-      customer_details,
-      metadata,
-      payment_intent,
-    } = await stripe.checkout.sessions.retrieve(sessionId);
-
-    
-    if(status === "complete" && payment_status === "paid"){
 
 
-      const sessionQuery = {sessionId};
-      const existingPayment = await payments.findOne(sessionQuery);
-      if(!existingPayment){
-        return res.send({success:false, message:'Payment already verified'});
-      }
+app.get("/appointments/count", async (req, res) => {
+  try {
+    const totalAppointment = await bookings.countDocuments();
 
-      const payment ={
-        sessionId,
-        status,
-        payment_status,
-        customer_details,
-        userId:metadata.userId,
-        paymet_date:new Date(),
-        payment_intent,
-      }
-
-      const result = await payments.insertOne(payment);
-      const query = {_id:new ObjectId(metadata.userId)};
-      const updateDoc ={
-        $set:{
-          premium:true,
-        }
-      }
-
-      const updateResult = await collection.updateOne(
-        query,
-        updateDoc
-    );
-     res.send({
-      success: true,
-      result,
-      updateResult,
+    const pendingAppointment = await bookings.countDocuments({
+      status: "pending",
     });
-     return
+
+    const confirmAppointment = await bookings.countDocuments({
+      status: "confirmed",
+    });
+
+    res.status(200).json({
+      success: true,
+      totalAppointment,
+      pendingAppointment,
+      confirmAppointment,
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+});
+
+
+app.post("/create-checkout-session", async(req,res)=>{
+  try{
+    const {serviceId,userId,bookingId}= req.body|| {};
+    console.log("Payment request",req.body);
+    if(!serviceId || !bookingId){
+      return res.send(400).json({
+        success: false,
+        message: "Service ID and Booking ID are required",
+      });
+    }
+    if(!ObjectId.isValid(serviceId)|| !ObjectId.isValid(bookingId)){
+       return res.status(400).json({
+        success: false,
+        message: "Invalid Service ID or Booking ID",
+      });
     }
 
-  res.send({success:false,message:"Payment verification failed"});
-})
-/////////////////////////////////////////////////////
+    const service = await services.findOne({
+      _id:new ObjectId(serviceId),
+    });
+    if(!service){
+      return res.status(404).json({
+        success: false,
+        message: "Service not found",
+      });
+    }
+    const booking = await bookings.findOne(
+      {
+        _id: new ObjectId(bookingId)
+      }
+    )
 
+    if(!booking){
+       return res.status(404).json({
+        success: false,
+        message: "Booking not found",
+      });
+    }
+
+    // Verify that booking belongs to the selected service
+    if (booking.serviceId.toString() !== serviceId) {
+      return res.status(400).json({
+        success: false,
+        message: "Booking and service do not match",
+      });
+    }
+
+    // Check payment status
+    if (booking.paymentStatus === "paid") {
+      return res.status(400).json({
+        success: false,
+        message: "This booking has already been paid",
+      });
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      line_items:[
+        {
+          price_data:{
+            currency:"usd",
+            product_data:{
+              name: service.serviceName || "Service Booking",
+            },
+            unit_amount:Math.round(service.price*0.00804*100),
+          },
+          quantity:1,
+        }
+      ],
+      success_url: `${process.env.CLIENT_URL}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.CLIENT_URL}/payment/canceled`,
+
+      mode:"payment",
+      metadata:{
+        serviceId: serviceId.toString(),
+        bookingId: bookingId.toString(),
+        userId: userId?.toString() || "",
+      },
+    });
+    console.log("Stripe session created:", session.id);
+    return res.status(200).json({
+      success: true,
+      url: session.url,
+      sessionId: session.id,
+    });
+  }catch(error){
+    console.log("Stripe checkout error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Checkout session creation failed",
+    });
+  }
+});
+
+app.get("/admin/payment/transactions",async(req,res)=>{
+  
+  try {
+    const result = await payments.find({}).toArray();
+    
+    res.status(200).send({
+      success: true,
+      message: "payment fetched successfully",
+      data: result,
+    });
+    
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to fetch payment",
+      data: [],
+    });
+  }
+
+});
+
+  
 
 app.listen(process.env.PORT || 8000, ()=>{
     console.log("Server is running on port 8000");
-})
+});
