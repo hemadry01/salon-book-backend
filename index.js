@@ -1136,7 +1136,7 @@ app.post("/create-checkout-session", async(req,res)=>{
     const {serviceId,userId,bookingId}= req.body|| {};
     console.log("Payment request",req.body);
     if(!serviceId || !bookingId){
-      return res.send(400).json({
+      return res.status(400).json({
         success: false,
         message: "Service ID and Booking ID are required",
       });
