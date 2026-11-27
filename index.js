@@ -1,10 +1,12 @@
-import express, { application, json } from 'express';
+import express from 'express';
 import cors from "cors";
 import 'dotenv/config';
 import { MongoClient, ObjectId } from 'mongodb';
 import Stripe from "stripe";
 
 const app = express();
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
 
 app.post(
   "/api/webhooks/stripe",
@@ -90,7 +92,6 @@ app.post(
 app.use(cors());
 app.use(express.json());
 
- const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 const client = new MongoClient(process.env.DB_URL);
  async function connectToMongoDB() {
@@ -1252,4 +1253,6 @@ app.get("/admin/payment/transactions",async(req,res)=>{
 //     console.log("Server is running on port 8000");
 // });
 
-export default app;
+export default function handler(req, res) {
+  return app(req, res);
+}
