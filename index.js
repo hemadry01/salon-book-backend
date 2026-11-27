@@ -1247,12 +1247,6 @@ app.get("/admin/payment/transactions",async(req,res)=>{
 
 });
 
-  
 
-// app.listen(process.env.PORT || 8000, ()=>{
-//     console.log("Server is running on port 8000");
-// });
 
-export default function handler(req, res) {
-  return app(req, res);
-}
+export default app;
