@@ -66,7 +66,7 @@ app.post(
         const valuse = await data.json(); 
 
         console.log("Database update:", result);
-        alert("Database add data:", valuse);
+       console.log("Database payment inserted:", data);
 
         if (result.matchedCount === 0) {
           console.log("Booking not found in database!");
@@ -122,7 +122,7 @@ app.get("/users/counts", async(req,res)=>{
   try {
 
     const count = await collection.countDocuments();
-    res.send({
+    res.status(200).send({
     success: true,
     count: count
   });
@@ -1249,6 +1249,8 @@ app.get("/admin/payment/transactions",async(req,res)=>{
 
   
 
-app.listen(process.env.PORT || 8000, ()=>{
-    console.log("Server is running on port 8000");
-});
+// app.listen(process.env.PORT || 8000, ()=>{
+//     console.log("Server is running on port 8000");
+// });
+
+export default app;
