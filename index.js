@@ -90,10 +90,10 @@ app.post(
 app.use(cors());
 app.use(express.json());
 
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 const client = new MongoClient(process.env.DB_URL);
-export async function connectToMongoDB() {
+ async function connectToMongoDB() {
   try {
     await client.connect();
     console.log("You successfully connected to MongoDB!");
