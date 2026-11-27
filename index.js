@@ -91,6 +91,7 @@ app.post(
 
 app.use(cors());
 app.use(express.json());
+const PORT = 8000;
 
 
 const client = new MongoClient(process.env.DB_URL);
@@ -336,13 +337,6 @@ app.delete("/admin/service/:id", async(req,res)=>{
 });
 
 app.patch("/admin/service/:id", async(req,res)=>{
-  // const{id} = req.params;
-  // const updateData = req.body
-  // const result = await services.updateOne(
-  //   {_id:new ObjectId(id)},
-  //   {$set:updateData}
-  // )
-  // res.json(result)
 
    try {
     const { id } = req.params;
@@ -1247,6 +1241,8 @@ app.get("/admin/payment/transactions",async(req,res)=>{
 
 });
 
-
+app.listen(PORT, () =>{
+    console.log(`Server is running on port ${PORT}`);
+})
 
 export default app;
