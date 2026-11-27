@@ -63,10 +63,9 @@ app.post(
           createdAt: new Date(),
         })
 
-        // const valuse = await data.json(); 
 
         console.log("Database update:", result);
-       console.log("Database payment inserted:", data);
+       console.log("Database successfully payment inserted:", data);
 
         if (result.matchedCount === 0) {
           console.log("Booking not found in database!");
