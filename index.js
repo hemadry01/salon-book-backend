@@ -91,7 +91,7 @@ app.post(
 
 app.use(cors());
 app.use(express.json());
-const PORT = 8000;
+// const PORT = 8000;
 
 
 const client = new MongoClient(process.env.DB_URL);
@@ -1241,9 +1241,10 @@ app.get("/admin/payment/transactions",async(req,res)=>{
 
 });
 
+// Vercel deployment update
+
 if (!process.env.VERCEL) {
   const PORT = process.env.PORT || 8000;
-
   app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
   });
